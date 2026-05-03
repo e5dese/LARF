@@ -1,0 +1,78 @@
+# ==============================================================================
+# LARF/.gitignore
+# 只提交代码 / 脚本 / README / 测试集 csv; 屏蔽所有大文件、生成产物、缓存。
+# ==============================================================================
+
+# -------- Python / Jupyter ----------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# -------- 虚拟环境 / 编辑器 / OS ----------------------------------------------
+.venv/
+venv/
+env/
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# -------- 评测输出: safe_test/ 下保留 csv 数据集, 屏蔽所有模型输出子目录 --------
+# 规则: 先全屏蔽 safe_test/ 下内容, 再放行 csv 数据集 (directHarm4.csv 等)。
+safe_test/*
+!safe_test/*.csv
+
+# -------- 推理 / 打分日志 -----------------------------------------------------
+eval_log/
+*.log
+eval_completions_log.txt
+llama_guard_log*.txt
+
+# -------- 训练数据 / 大 jsonl (data/ 里面是 PKU_UnSafeRLHF / pure-bad 等) -----
+data/
+
+# -------- 生成的图 ------------------------------------------------------------
+vote32_plots/
+vote_h_k_plots/
+*.pdf
+
+# -------- 解析后的 CSV 结果 (脚本跑完才生成, 不进 git) ------------------------
+log_parsed_summary*.csv
+
+# -------- 模型权重 / checkpoints (永远不要进 git) -----------------------------
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.gguf
+*.onnx
+checkpoints/
+model_weight/
+
+# -------- run_pipeline.sh 可能写出来的临时输出 (HDFS 之外的本地落点) ----------
+# 如果你把 RESULTS_HDFS_ROOT 改回了本地, 这里也兜一下:
+results/
+runs/
+outputs/
+
+# -------- wandb -----------------------------------------------------------------
+wandb/
+
+# -------- 其它常见噪音 --------------------------------------------------------
+*.tmp
+*.bak
+*.orig
+core.*
+nohup.out
