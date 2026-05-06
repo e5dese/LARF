@@ -11,8 +11,11 @@ ENTRY_DIR="/opt/tiger/entry"
 LARF_DIR="${ENTRY_DIR}/LARF"
 LLAMA_GUARD_MODEL="${ENTRY_DIR}/Llama-Guard-4-12B"
 
-CKPT_ROOT="/mnt/hdfs/tiktok_aiic/user/lihao.612/sf_ckpts"
-CKPT_GLOB="${CKPT_GLOB:-Llama-3-8B-Instruct-vector-*-PKU_UnSafeRLHF_100}"
+# 训练脚本把产物放到 sf_ckpts/${MODEL_BASE}/${MODEL_BASE}-vector-...
+# 切换被测 family: CKPT_BASE=Qwen3-8B bash run.sh
+CKPT_BASE="${CKPT_BASE:-Llama-3-8B-Instruct}"
+CKPT_ROOT="/mnt/hdfs/tiktok_aiic/user/lihao.612/sf_ckpts/${CKPT_BASE}"
+CKPT_GLOB="${CKPT_GLOB:-${CKPT_BASE}-vector-*-PKU_UnSafeRLHF_100}"
 
 HDFS_RUN_DIR="/mnt/hdfs/tiktok_aiic/user/lihao.612/ckpt/larf_eval_$(date +%Y%m%d_%H%M%S)"
 LOG_DIR="${HDFS_RUN_DIR}/logs"
