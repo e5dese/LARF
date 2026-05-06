@@ -30,67 +30,105 @@ MODELS=("${CKPT_ROOT}"/${CKPT_GLOB})
 shopt -u nullglob
 echo "[run] 发现 ${#MODELS[@]} 个模型, 输出 → ${HDFS_RUN_DIR}"
 
-cd "${LARF_DIR}"
+# cd "${LARF_DIR}"
 
-# ============ 阶段 1: 推理 ============
-for i in "${!MODELS[@]}"; do
-    MODEL_PATH="${MODELS[$i]}"
-    GPU_ID=$(( i % BATCH_SIZE ))
-    NAME=$(basename "${MODEL_PATH}")
+# # ============ 阶段 1: 推理 ============
+# for i in "${!MODELS[@]}"; do
+#     MODEL_PATH="${MODELS[$i]}"
+#     GPU_ID=$(( i % BATCH_SIZE ))
+#     NAME=$(basename "${MODEL_PATH}")
 
-    EVAL_PATH=""; LATEST=-1
-    shopt -s nullglob
-    for c in "${MODEL_PATH}"/checkpoint-*; do
-        [ -d "$c" ] || continue
-        step="${c##*/checkpoint-}"
-        [[ "$step" =~ ^[0-9]+$ ]] || continue
-        (( step > LATEST )) && LATEST=$step && EVAL_PATH="$c"
-    done
-    shopt -u nullglob
-    [ -z "${EVAL_PATH}" ] && { echo "[run] WARN: ${NAME} 无 checkpoint, 跳过"; continue; }
+#     EVAL_PATH=""; LATEST=-1
+#     shopt -s nullglob
+#     for c in "${MODEL_PATH}"/checkpoint-*; do
+#         [ -d "$c" ] || continue
+#         step="${c##*/checkpoint-}"
+#         [[ "$step" =~ ^[0-9]+$ ]] || continue
+#         (( step > LATEST )) && LATEST=$step && EVAL_PATH="$c"
+#     done
+#     shopt -u nullglob
+#     [ -z "${EVAL_PATH}" ] && { echo "[run] WARN: ${NAME} 无 checkpoint, 跳过"; continue; }
 
-    LOG="${LOG_DIR}/eval_${NAME}.log"
-    echo ">>> [GPU ${GPU_ID}] ${NAME} → $(basename ${EVAL_PATH})"
-    (
-        OUT_BASE="${RESULTS_ROOT}/${NAME}/eval_results"
-        CUDA_VISIBLE_DEVICES=${GPU_ID} python eval_student_model.py \
-            --model_path "${EVAL_PATH}" --output_dir "${OUT_BASE}/temp_0" \
-            --temperature 0 --benches "${BENCHES[@]}"
-        for r in 1 2 3; do
-            sub="temp_1"; [ "$r" -gt 1 ] && sub="temp_1_run${r}"
-            CUDA_VISIBLE_DEVICES=${GPU_ID} python eval_student_model.py \
-                --model_path "${EVAL_PATH}" --output_dir "${OUT_BASE}/${sub}" \
-                --temperature 1 --benches "${BENCHES[@]}"
-        done
-    ) > "${LOG}" 2>&1 &
+#     LOG="${LOG_DIR}/eval_${NAME}.log"
+#     echo ">>> [GPU ${GPU_ID}] ${NAME} → $(basename ${EVAL_PATH})"
+#     (
+#         OUT_BASE="${RESULTS_ROOT}/${NAME}/eval_results"
+#         CUDA_VISIBLE_DEVICES=${GPU_ID} python eval_student_model.py \
+#             --model_path "${EVAL_PATH}" --output_dir "${OUT_BASE}/temp_0" \
+#             --temperature 0 --benches "${BENCHES[@]}"
+#         for r in 1 2 3; do
+#             sub="temp_1"; [ "$r" -gt 1 ] && sub="temp_1_run${r}"
+#             CUDA_VISIBLE_DEVICES=${GPU_ID} python eval_student_model.py \
+#                 --model_path "${EVAL_PATH}" --output_dir "${OUT_BASE}/${sub}" \
+#                 --temperature 1 --benches "${BENCHES[@]}"
+#         done
+#     ) > "${LOG}" 2>&1 &
 
-    (( (i + 1) % BATCH_SIZE == 0 )) && wait
-done
-wait
-echo "[run] 阶段 1 完成"
+#     (( (i + 1) % BATCH_SIZE == 0 )) && wait
+# done
+# wait
+# echo "[run] 阶段 1 完成"
 
 # ============ 阶段 2: vLLM Llama-Guard 服务 (GPU 0, port 8000) ============
 VLLM_LOG="${LOG_DIR}/vllm_llama_guard.log"
-CUDA_VISIBLE_DEVICES=0 nohup python -m vllm.entrypoints.openai.api_server \
-    --model "${LLAMA_GUARD_MODEL}" --port 8000 \
-    --tensor-parallel-size 1 --trust-remote-code \
+
+# 先启动后台进程
+vllm serve --model "${LLAMA_GUARD_MODEL}" --port=8000 \
+    --data-parallel-size=8 --trust-remote-code \
     > "${VLLM_LOG}" 2>&1 &
 VLLM_PID=$!
-trap "kill ${VLLM_PID} 2>/dev/null" EXIT
-echo "[run] 等待 vLLM (PID=${VLLM_PID}) ..."
-for _ in $(seq 1 120); do
-    curl -sf http://localhost:8000/v1/models > /dev/null 2>&1 && { echo "[run] vLLM 就绪"; break; }
-    kill -0 ${VLLM_PID} 2>/dev/null || { echo "[run] vLLM 退出, 见 ${VLLM_LOG}"; exit 1; }
+
+# 确保 PID 有效后再注册清理
+if [ -z "${VLLM_PID}" ] || ! kill -0 "${VLLM_PID}" 2>/dev/null; then
+    echo "[error] vLLM 启动失败, 日志: ${VLLM_LOG}"
+    exit 1
+fi
+
+cleanup_vllm() {
+    if [ -n "${VLLM_PID}" ] && kill -0 "${VLLM_PID}" 2>/dev/null; then
+        echo "[cleanup] 终止 vLLM (PID=${VLLM_PID}) ..."
+        kill -TERM "${VLLM_PID}" 2>/dev/null
+        sleep 2
+        kill -0 "${VLLM_PID}" 2>/dev/null && kill -9 "${VLLM_PID}" 2>/dev/null
+        wait "${VLLM_PID}" 2>/dev/null
+    fi
+}
+trap cleanup_vllm EXIT INT TERM
+
+echo "[run] 等待 vLLM (PID=${VLLM_PID}) 就绪 ..."
+VLLM_READY=false
+for i in $(seq 1 120); do
+    if curl -sf http://localhost:8000/v1/models > /dev/null 2>&1; then
+        echo "[run] vLLM 就绪 (尝试 ${i} 次)"
+        VLLM_READY=true
+        break
+    fi
+    if ! kill -0 "${VLLM_PID}" 2>/dev/null; then
+        echo "[error] vLLM 进程已退出, 日志: ${VLLM_LOG}"
+        exit 1
+    fi
     sleep 5
 done
+
+if [ "${VLLM_READY}" != "true" ]; then
+    echo "[error] vLLM 在 600 秒内未就绪, 日志: ${VLLM_LOG}"
+    exit 1
+fi
 
 # ============ 阶段 3: Llama Guard 打分 ============
 for MODEL_PATH in "${MODELS[@]}"; do
     NAME=$(basename "${MODEL_PATH}")
     TARGET="${RESULTS_ROOT}/${NAME}/eval_results"
     [ -d "${TARGET}" ] || continue
+    
+    # 打分前检查服务存活
+    if ! curl -sf http://localhost:8000/v1/models > /dev/null 2>&1; then
+        echo "[error] vLLM 服务在打分前已不可达, 日志: ${VLLM_LOG}"
+        exit 1
+    fi
+    
     echo ">>> 打分: ${TARGET}"
-    python llama_guard.py --input_dir "${TARGET}" 2>&1 | tee "${LOG_DIR}/guard_${NAME}.log"
+    python LARF/llama_guard.py --input_dir "${TARGET}" 2>&1 | tee "${LOG_DIR}/guard_${NAME}.log"
 done
 
 echo "[run] 全部完成! ${HDFS_RUN_DIR}"
