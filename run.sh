@@ -19,7 +19,8 @@ CKPT_GLOB="${CKPT_GLOB:-${CKPT_BASE}-vector-*-PKU_UnSafeRLHF_100}"
 
 DATE_TAG=$(date +%Y%m%d)
 EVAL_SUBDIR="eval_${DATE_TAG}"
-VLLM_LOG="${CKPT_ROOT}/_vllm_${DATE_TAG}.log"
+# vLLM 日志走本地 (HDFS fuse 写日志看不到实时输出, 不利于调试)
+VLLM_LOG="${LARF_DIR}/_vllm_${DATE_TAG}.log"
 
 BATCH_SIZE=8
 BENCHES=(direct harm phi harmful_behaviors)
@@ -127,7 +128,7 @@ for MODEL_PATH in "${MODELS[@]}"; do
 
     mkdir -p "${TARGET}/logs"
     echo ">>> 打分: ${TARGET}"
-    python LARF/llama_guard.py --input_dir "${TARGET}" 2>&1 | tee "${TARGET}/logs/guard.log"
+    python "${LARF_DIR}/llama_guard.py" --input_dir "${TARGET}" 2>&1 | tee "${TARGET}/logs/guard.log"
 done
 
 # ============ 阶段 4: 汇总 ASR ============
