@@ -6,6 +6,4 @@ pandas
 peft
 wandb
 scikit_learn
-torch==2.5.1+cu121
 tqdm
-transformers==4.51.3
