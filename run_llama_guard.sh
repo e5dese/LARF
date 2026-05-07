@@ -1,185 +1,73 @@
-# python -m vllm.entrypoints.openai.api_server \
-#     --model /share/project/huggingface/models/Llama-Guard-4-12B \
-#     --port 8000 \
-#     --trust-remote-code
-
 #!/bin/bash
+# ==============================================================================
+# Llama Guard 批量打分 — 当前任务: 给 28 个 Llama-3-8B vote-samples8 变体打分
+#
+# 跑前必须先启动 vLLM Llama Guard 服务, 例如:
+  CUDA_VISIBLE_DEVICES=0,1 python -m vllm.entrypoints.openai.api_server \
+      --model /ssddata/lihao/projects/models/Llama-Guard-4-12B \
+      --port 8000 \
+      --trust-remote-code \
+      --tensor-parallel-size 2 \
+      --max-model-len 16384 \
+      --gpu-memory-utilization 0.9
+#
+# 服务地址 (host:port) 在 LARF/llama_guard.py 里硬编码为 http://localhost:8000/v1.
+# ==============================================================================
 
-# 遇到错误时直接退出
 set -e
 
-# 你当前生成数据的 9 个模型文件夹名称
-MODELS=(
-    # "Qwen2.5-7B-Instruct"
-    # "Qwen2.5-7B-Instruct-refusal-vector"
-    # "Qwen2.5-7B-Instruct-refusal-vector-Reverse"
-    # "Qwen3-4B"
-    # "Qwen3-4B-refusal-vector"
-    # "Qwen3-4B-refusal-vector-Reverse"
-    # "Qwen3-8B"
-    # "Qwen3-8B-refusal-vector"
-    # "Qwen3-8B-refusal-vector-Reverse"
-    # "Qwen2.5-7B-Instruct-system_prompt-V1-new"
-    # "Qwen2.5-7B-Instruct-system_prompt-V2-new"
-    # "Qwen3-4B-system_prompt-V1"
-    # "Qwen3-4B-system_prompt-V2"
-    # "Qwen3-8B-system_prompt-V1-new"
-    # "Qwen3-8B-system_prompt-V2"
-
-    # "Qwen2.5-7B-Instruct-system_prompt-V1-new-reverse"
-    # "Qwen2.5-7B-Instruct-system_prompt-V2-new-reverse"
-    # "Qwen3-4B-system_prompt-V1-reverse"
-    # "Qwen3-4B-system_prompt-V2-reverse"
-    # "Qwen3-8B-system_prompt-V1-new-reverse"
-    # "Qwen3-8B-system_prompt-V2-reverse"
-
-    # "Qwen2.5-7B-Instruct-system_prompt-V2-new-reverse"
-    # "Qwen3-8B-system_prompt-V2-reverse"
-    # "Qwen2.5-7B-Instruct-refusal-vector-Reverse"
-    # "Qwen3-8B-refusal-vector-Reverse"
-
-    # "Qwen3-4B-mode0-alpha1.0-jailbreakbench"
-    # "Qwen3-8B-mode0-alpha1.0-jailbreakbench"
-    # "Qwen3-8B-mode1-top50-alpha1.0-jailbreakbench"
-    # "Qwen3-8B-mode2-top50-alpha1.0-jailbreakbench"
-    # "Qwen3-8B-mode0-alpha0.0-jailbreakbench"
-    # "Qwen3-8B-mode1-top50-alpha0.0-jailbreakbench"
-    # "Qwen3-8B-mode2-top50-alpha0.0-jailbreakbench"
-    # "Llama-3.2-3B-Instruct-mode0-alpha1.0-jailbreakbench"
-    # "Llama-3.2-3B-Instruct-mode1-top50-alpha1.0-jailbreakbench"
-    # "Llama-3.2-3B-Instruct-mode2-top50-alpha1.0-jailbreakbench"
-    # "Llama-3.2-3B-Instruct-vector-mode0-alpha1.0-PKU_UnSafeRLHF_500"
-    # "Llama-3.2-3B-Instruct-vector-mode1-top50-alpha1.0-PKU_UnSafeRLHF_500"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-PKU_UnSafeRLHF_500"
-    # "Llama-3.2-3B-Instruct"
-    # "Qwen3-8B-vector-mode0-alpha1.0-PKU_UnSafeRLHF_500"
-    # "Qwen3-8B-vector-mode1-top50-alpha1.0-PKU_UnSafeRLHF_500"
-    # "Qwen3-8B-vector-mode2-top50-horizon1-alpha1.0-PKU_UnSafeRLHF_500"
-    # "Qwen3-8B"
-    # Qwen3-8B PKU_UnSafeRLHF_100 alpha1.0
-    # "Qwen3-8B-vector-mode0-alpha1.0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode1-top50-alpha1.0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode2-top50-horizon1-alpha1.0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode2-top50-horizon10-alpha1.0-PKU_UnSafeRLHF_100"
-    # Llama-3.2-3B-Instruct PKU_UnSafeRLHF_100 alpha1.0
-    # "Llama-3.2-3B-Instruct-vector-mode0-alpha1.0-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode1-top50-alpha1.0-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon10-alpha1.0-PKU_UnSafeRLHF_100"
-    # 24 个 keep0/keep10 变体 PKU_UnSafeRLHF_100 alpha1.0
-    # "Qwen3-8B-vector-mode0-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode0-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode1-top50-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode1-top50-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode2-top50-horizon1-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode2-top50-horizon1-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode2-top50-horizon10-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-8B-vector-mode2-top50-horizon10-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode0-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode0-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode1-top50-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode1-top50-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode0-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode0-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode1-top50-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode1-top50-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # Llama-3-8B-Instruct 基线（此前未打分）
-    # "Llama-3-8B-Instruct"
-    # 8 个 Llama-3-8B alpha0.0 keep0/keep10 变体 PKU_UnSafeRLHF_100
-    # "Llama-3-8B-Instruct-vector-mode0-alpha0.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode0-alpha0.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode1-top50-alpha0.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode1-top50-alpha0.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha0.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha0.0-keep10-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha0.0-keep0-PKU_UnSafeRLHF_100"
-    # "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha0.0-keep10-PKU_UnSafeRLHF_100"
-    # 重训后的 8 个 Qwen3-4B alpha1.0 keep0/keep10 变体 PKU_UnSafeRLHF_100
-    # "Qwen3-4B-vector-mode0-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode0-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode1-top50-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode1-top50-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep0-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep10-PKU_UnSafeRLHF_100"
-    # Qwen3-4B 基线 harmful_behaviors 此前未打分
-    # "Qwen3-4B"
-    # 54 个 vote-samples8 (h<k 或 k=0) 变体 (Llama-3.2-3B + Qwen3-4B 各 27 个) — 已打分
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep2-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep4-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep4-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon8-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon8-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon8-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep2-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep4-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon1-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon2-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon2-alpha1.0-keep4-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon2-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon2-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon2-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon2-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon4-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon4-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon4-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon4-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon4-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon6-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon6-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon6-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon6-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon8-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon8-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon8-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    # 2 个 h10 k10 vote-samples8 补测变体 (0501)
-    "Llama-3.2-3B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-    "Qwen3-4B-vector-mode2-top50-horizon10-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
-)
-
-# 数据所在的根目录
 BASE_DIR="safe_test"
+LLAMA_GUARD_URL="${LLAMA_GUARD_URL:-http://localhost:8000}"
+
+# ===== 28 个 Llama-3-8B-Instruct vote-samples8 变体 =====
+# 跟 LARF/run_safe_system_prompt_new.sh 里的 MODELS 数组一一对应。
+MODELS=(
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep2-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep4-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon1-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep4-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon2-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep6-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon4-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep8-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon6-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon8-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon8-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon8-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep0-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep10-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+    "Llama-3-8B-Instruct-vector-mode2-top50-horizon10-alpha1.0-keep12-vote-samples8-T1.0-Tp1.0-Vk200-excl1-PKU_UnSafeRLHF_100"
+)
 
 echo "=================================================="
 echo "Starting Llama Guard Auto-Evaluation Batch Job"
+echo "  Models   : ${#MODELS[@]} 个 Llama-3-8B vote-samples8 变体"
+echo "  vLLM URL : ${LLAMA_GUARD_URL}"
 echo "=================================================="
 
+# --- vLLM health check ---
+echo ">>> 检查 vLLM 服务可达性 ..."
+if ! curl -sf "${LLAMA_GUARD_URL}/v1/models" >/dev/null; then
+    echo "ERROR: 无法连接 vLLM 服务 (${LLAMA_GUARD_URL}/v1/models)"
+    echo "       请先启动 Llama-Guard-4-12B vllm openai server (见脚本头部注释)。"
+    exit 1
+fi
+echo "    OK"
+
+# --- 逐个模型打分 ---
 for MODEL in "${MODELS[@]}"; do
     TARGET_DIR="${BASE_DIR}/${MODEL}/eval_results"
 
@@ -187,7 +75,6 @@ for MODEL in "${MODELS[@]}"; do
         echo "--------------------------------------------------"
         echo ">>> Evaluating Directory: ${TARGET_DIR}"
         echo "--------------------------------------------------"
-
         python llama_guard.py --input_dir "${TARGET_DIR}"
     else
         echo "Warning: Directory ${TARGET_DIR} does not exist. Skipping..."

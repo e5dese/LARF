@@ -8,11 +8,11 @@ BASE_DIR = "safe_test"
 OUT_DIR = "vote_h_k_plots"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-BASES = ["Llama-3.2-3B-Instruct", "Qwen3-4B"]
+BASES = ["Llama-3.2-3B-Instruct", "Qwen3-4B", "Llama-3-8B-Instruct"]
 BENCHES = ["direct", "harm", "harmful_behaviors", "phi"]
 
 MODEL_PATTERN = re.compile(
-    r'^(?P<base>Llama-3\.2-3B-Instruct|Qwen3-4B)'
+    r'^(?P<base>Llama-3\.2-3B-Instruct|Qwen3-4B|Llama-3-8B-Instruct)'
     r'-vector-mode2-top50'
     r'-horizon(?P<horizon>\d+)'
     r'-alpha1\.0'
@@ -52,11 +52,13 @@ def discover(base):
         m = MODEL_PATTERN.match(name)
         if not m or m.group('base') != base:
             continue
-        items.append({
-            'model': name,
-            'horizon': int(m.group('horizon')),
-            'keep': int(m.group('keep')),
-        })
+        h, k = int(m.group('horizon')), int(m.group('keep'))
+        # Llama-3-8B-Instruct 这一批: h==k 的 diagonal 来自更早期的 32-batch
+        # (h=1,3,5,7 当时跑过), 模型权重已被 2026-05-06 重训覆盖前的旧权重生成,
+        # 不该和这次的新结果混在一起。只保留 h=k=10 (因为这次新跑也包含 (10,10))。
+        if base == "Llama-3-8B-Instruct" and h == k and not (h == 10 and k == 10):
+            continue
+        items.append({'model': name, 'horizon': h, 'keep': k})
     return items
 
 
