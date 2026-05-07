@@ -72,7 +72,7 @@ echo "[run] 阶段 1 完成"
 
 # ============ 阶段 2: vLLM Llama-Guard 服务 (GPU 0, port 8000) ============
 # 先启动后台进程
-vllm serve --model "${LLAMA_GUARD_MODEL}" --port=8000 \
+vllm serve --model "${LLAMA_GUARD_MODEL}" --port=8000  --max-model-len 1000 \
     --data-parallel-size=8 --trust-remote-code \
     > "${VLLM_LOG}" 2>&1 &
 VLLM_PID=$!
